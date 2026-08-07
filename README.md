@@ -7,6 +7,22 @@ able to defend it, line by line, in a system-design interview.
 
 ![Architecture diagram](diagrams/architecture.svg)
 
+**This repo ships working Terraform for all three major clouds** — `terraform/aws/`,
+`terraform/azure/`, `terraform/gcp/` — plus one CI/CD pipeline per cloud
+(`.github/workflows/ci-cd-{aws,azure,gcp}.yaml`) and a complete command-by-command setup guide per
+cloud in `docs/`. Everything above the Terraform layer (Argo CD, Kubernetes manifests,
+Prometheus/Grafana, Backstage, the microservice itself) is identical across all three — only the
+network and cluster provisioning code differs, because that's the only layer that's actually
+cloud-specific. **Pick one cloud, follow its guide in `docs/`, and enable only that one CI
+pipeline** (see the note at the top of each workflow file) — running all three at once would
+deploy the same service three times to three different clouds simultaneously.
+
+| I want to run this on... | Start here |
+|---|---|
+| AWS | `docs/AWS_END_TO_END.md` |
+| Azure | `docs/AZURE_END_TO_END.md` |
+| GCP | `docs/GCP_END_TO_END.md` |
+
 ---
 
 ## What this actually is
@@ -33,10 +49,19 @@ Platform," worth stating exactly that way if an interviewer asks what an IDP eve
 ```
 .
 ├── terraform/
-│   ├── modules/
-│   │   ├── vpc/            # network layer: VPC, subnets, NAT, routing
-│   │   └── eks/             # EKS control plane + managed node group + IAM
-│   └── envs/dev/            # the only root module you actually `terraform apply`
+│   ├── aws/
+│   │   ├── modules/{vpc,eks}/     # VPC + EKS
+│   │   └── envs/dev/              # `terraform apply` here for AWS
+│   ├── azure/
+│   │   ├── modules/{network,aks}/ # VNet + AKS
+│   │   └── envs/dev/              # `terraform apply` here for Azure
+│   └── gcp/
+│       ├── modules/{network,gke}/ # VPC + GKE Autopilot
+│       └── envs/dev/              # `terraform apply` here for GCP
+├── docs/
+│   ├── AWS_END_TO_END.md      # full command-by-command AWS setup + costs
+│   ├── AZURE_END_TO_END.md    # full command-by-command Azure setup + costs
+│   └── GCP_END_TO_END.md      # full command-by-command GCP setup + costs
 ├── argocd/
 │   ├── bootstrap/root-app.yaml   # the one manifest you apply by hand, ever
 │   └── apps/                     # everything else — Argo CD manages itself from here
