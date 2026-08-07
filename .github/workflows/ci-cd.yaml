@@ -1,0 +1,87 @@
+# Decision: GitHub Actions with OIDC federation into AWS (no long-lived
+# AWS access keys stored as GitHub secrets). CI never touches the cluster
+# directly — it builds, tests, scans, pushes an image, and edits a YAML
+# file in Git. Argo CD (already watching the repo) does the actual deploy.
+# This is what "CI does delivery, Argo does deployment" means in practice,
+# and it's the single most-asked "how does your pipeline actually work"
+# interview question for this kind of project.
+name: build-test-scan-deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+
+permissions:
+  id-token: write   # required for OIDC -> AWS
+  contents: write   # required to commit the new image tag back to the repo
+
+env:
+  ECR_REPOSITORY: sample-service
+  AWS_REGION: ap-south-1
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ---- TEST stage ----
+      - name: Install dependencies
+        run: pip install -r app/src/requirements.txt
+      - name: Run unit tests
+        run: pytest app/src/test_main.py -v
+
+      # ---- BUILD stage ----
+      - name: Build Docker image
+        run: docker build -t ${{ env.ECR_REPOSITORY }}:${{ github.sha }} app/
+
+      # ---- SCAN stage ----
+      # Decision: Trivy, not a paid scanner — it's free, fast, and covers both
+      # OS package CVEs and known-bad app dependencies from requirements.txt.
+      # Pipeline fails the build on CRITICAL/HIGH so a vulnerable image can
+      # never reach the registry, let alone the cluster.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: "${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+          ignore-unfixed: true
+
+      # ---- PUSH stage (only after tests + scan pass) ----
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::ACCOUNT_ID:role/github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag and push image
+        run: |
+          IMAGE_URI=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker tag ${{ env.ECR_REPOSITORY }}:${{ github.sha }} $IMAGE_URI
+          docker push $IMAGE_URI
+
+      # ---- DEPLOY stage: GitOps handoff, not a live kubectl/helm deploy ----
+      # Decision: CI's "deploy" step is a Git commit, not a cluster mutation.
+      # This is deliberate — it means every production change has a commit
+      # hash, a PR history, and an instant rollback path (git revert), and
+      # CI never needs cluster credentials at all.
+      - name: Update image tag in GitOps manifest
+        run: |
+          IMAGE_URI=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          sed -i "s|image: .*sample-service.*|image: ${IMAGE_URI}|" app/k8s/deployment.yaml
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add app/k8s/deployment.yaml
+          git commit -m "ci: deploy sample-service ${{ github.sha }}"
+          git push

@@ -1,0 +1,24 @@
+# This is the "golden path" a product team actually uses: they own
+# app/k8s/*.yaml and app/src/*, and never touch anything under terraform/
+# or argocd/bootstrap. The CI pipeline (see .github/workflows/ci-cd.yaml)
+# is the only thing that edits this Application's target image tag.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-service
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/internal-developer-platform.git
+    targetRevision: main
+    path: app/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

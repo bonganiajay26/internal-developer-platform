@@ -1,0 +1,31 @@
+# Decision: Prometheus + Grafana deployed as an Argo CD Application pointing
+# at the community kube-prometheus-stack Helm chart, rather than hand-rolled
+# manifests. That chart already bundles the Prometheus Operator, node-exporter
+# DaemonSet, kube-state-metrics, alertmanager, and Grafana with sane defaults —
+# writing that from scratch would be reinventing a well-tested wheel.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: "61.3.0"
+      helm:
+        valueFiles:
+          - $values/monitoring/values.yaml
+    - repoURL: https://github.com/YOUR_USERNAME/internal-developer-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

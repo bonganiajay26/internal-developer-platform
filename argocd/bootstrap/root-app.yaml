@@ -1,0 +1,28 @@
+# Decision: "app of apps" pattern. You apply THIS one manifest by hand,
+# once, after the cluster exists. From then on, every other Argo CD
+# Application (including future ones) is defined as a file in argocd/apps/
+# and Argo CD syncs itself. This is the actual definition of GitOps:
+# after the bootstrap, nobody runs `kubectl apply` against the cluster again —
+# they open a pull request against this repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/internal-developer-platform.git
+    targetRevision: main
+    path: argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true      # deleting a file in Git deletes the resource in-cluster
+      selfHeal: true    # manual kubectl edits get reverted back to Git's state
+    syncOptions:
+      - CreateNamespace=true

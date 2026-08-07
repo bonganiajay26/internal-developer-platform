@@ -1,0 +1,47 @@
+# Decision: 10-day metric retention + 10Gi PVC for a dev/portfolio cluster.
+# In a real production platform this would be 15-30 days locally with
+# remote_write to a long-term store (Thanos/Mimir/Cortex) — omitted here
+# to keep the demo cluster cheap, but called out explicitly so it's clear
+# this is a conscious scope cut, not an oversight.
+prometheus:
+  prometheusSpec:
+    retention: 10d
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: 500m, memory: 1Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+grafana:
+  adminPassword: "CHANGE_ME_use_a_secret_in_real_deployments"
+  persistence:
+    enabled: true
+    size: 5Gi
+  defaultDashboardsEnabled: true
+  # Decision: pre-provision a dashboard for the sample microservice so the
+  # platform is useful on day one instead of shipping an empty Grafana.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: platform-dashboards
+          orgId: 1
+          folder: Platform
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/platform-dashboards
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 100m, memory: 256Mi }
+
+# Decision: node-exporter and kube-state-metrics stay on by default (chart
+# defaults) — they are the two exporters that make "why is this node/pod
+# unhealthy" answerable, and disabling them to save ~50m CPU is a false economy.
