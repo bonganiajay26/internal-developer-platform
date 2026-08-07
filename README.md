@@ -117,7 +117,7 @@ kubectl get applications -n argocd
 From this point on, every change to `argocd/apps/`, `app/k8s/`, or `monitoring/values.yaml` is
 picked up automatically — you never run `kubectl apply` again.
 
-## How to tear it down
+## How to tear it downcode
 
 ```bash
 kubectl delete -f argocd/bootstrap/root-app.yaml   # removes Argo-managed resources
@@ -137,5 +137,3 @@ terraform destroy                                    # removes the cluster and n
 
 This "what I'd change at scale" list is deliberate — it's the difference between an answer that
 sounds like a tutorial and one that sounds like judgment.
-#   i n t e r n a l - d e v e l o p e r - p l a t f o r m  
- 
