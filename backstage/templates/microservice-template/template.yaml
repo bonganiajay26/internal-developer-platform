@@ -1,0 +1,95 @@
+# Decision: this is the actual "self-service" half of an Internal Developer
+# Platform. Everything in terraform/ and argocd/ makes infrastructure
+# consistent; this template is what makes ONBOARDING A NEW SERVICE consistent.
+# Without it, "golden path" is just a folder someone has to remember to copy
+# correctly. With it, a developer fills in a form in Backstage's UI, and gets
+# a new repo, a working CI pipeline, and an Argo CD Application — all wired
+# correctly, every time, with zero platform-team involvement per request.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: golden-path-microservice
+  title: New golden-path microservice
+  description: >
+    Scaffolds a Flask microservice pre-wired with health/metrics endpoints,
+    a Dockerfile, Kubernetes manifests, an Argo CD Application, and a
+    build-test-scan-deploy CI pipeline — the exact pattern used by
+    app/ in this repo, parameterized for a new service name.
+  tags:
+    - recommended
+    - python
+spec:
+  owner: platform-team
+  type: service
+
+  # Decision: only 3 required inputs. Every extra required field in a
+  # scaffolder form is friction that pushes a developer back toward "I'll
+  # just copy the old folder by hand" — the form should ask for the minimum
+  # that can't be safely defaulted (name, description, who owns it).
+  parameters:
+    - title: Basic information
+      required:
+        - serviceName
+        - owner
+      properties:
+        serviceName:
+          title: Service name
+          type: string
+          description: Lowercase, hyphenated (e.g. billing-service)
+          pattern: "^[a-z][a-z0-9-]*$"
+        description:
+          title: Description
+          type: string
+        owner:
+          title: Owning team
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+
+  steps:
+    - id: fetch-skeleton
+      name: Generate service from skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          serviceName: ${{ parameters.serviceName }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+
+    - id: publish
+      name: Publish new repository
+      action: publish:github
+      input:
+        repoUrl: github.com?repo=${{ parameters.serviceName }}&owner=YOUR_GITHUB_ORG
+        description: ${{ parameters.description }}
+        defaultBranch: main
+
+    - id: register
+      name: Register in the software catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    - id: argocd-app
+      name: Register Argo CD Application
+      action: fetch:plain
+      input:
+        # In a real deployment this step opens a PR against
+        # argocd/apps/ in THIS repo, adding <serviceName>.yaml — that PR,
+        # not a scaffolder action reaching into the cluster, is what puts
+        # the new service under GitOps management. Keeping this as a PR
+        # (not a direct commit) means a platform engineer reviews every
+        # new service before Argo CD starts managing it.
+        targetPath: ./argocd-app-pr-placeholder
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

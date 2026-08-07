@@ -1,0 +1,47 @@
+# This is NOT a full Backstage installation (that's `npx @backstage/create-app`,
+# a separate Node.js application with its own repo). This file is the
+# platform-specific config fragment you paste into that app's app-config.yaml
+# to point a fresh Backstage instance at THIS platform's cluster, catalog
+# entities, and templates.
+
+catalog:
+  # Decision: locations point at catalog-info.yaml files inside application
+  # repos (app/catalog-info.yaml), not a hand-maintained central list. This
+  # is what keeps the catalog accurate — deleting a service's repo removes
+  # it from the catalog on the next scan; a central list would silently
+  # accumulate entries for services that no longer exist.
+  locations:
+    - type: url
+      target: https://github.com/YOUR_USERNAME/internal-developer-platform/blob/main/app/catalog-info.yaml
+    - type: url
+      target: https://github.com/YOUR_USERNAME/internal-developer-platform/blob/main/backstage/templates/microservice-template/template.yaml
+      rules:
+        - allow: [Template]
+
+# Decision: the Kubernetes plugin reads the SAME cluster Terraform provisioned
+# in terraform/envs/dev — Backstage doesn't get its own copy of infrastructure
+# state, it authenticates against the real cluster and reads live pod/deployment
+# status. This is what lets a developer see "is my service actually running,
+# and what does its pod status say right now" without leaving the portal to
+# open kubectl or the AWS console.
+kubernetes:
+  serviceLocatorMethod:
+    type: multiTenant
+  clusterLocatorMethods:
+    - type: config
+      clusters:
+        - url: ${K8S_CLUSTER_URL}          # from `terraform output cluster_endpoint`
+          name: idp-dev
+          authProvider: aws
+          skipTLSVerify: false
+
+# TechDocs renders Markdown docs (like this repo's own README and the
+# Repo_Complete_Explanation.md walkthrough) straight from the source repo,
+# published as a static site per-component — so documentation quality is
+# reviewed in the same PR as the code change, instead of drifting in Confluence.
+techdocs:
+  builder: local
+  generator:
+    runIn: docker
+  publisher:
+    type: local

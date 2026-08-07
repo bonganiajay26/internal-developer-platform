@@ -1,0 +1,58 @@
+# Decision: catalog-info.yaml lives inside app/ (next to the code it describes),
+# not centralized in a separate "registry" repo. Backstage discovers entities by
+# scanning registered locations for files with this exact name — co-locating it
+# means the catalog entry moves, renames, and gets deleted in lockstep with the
+# service it describes, instead of drifting out of sync in a separate registry.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sample-service
+  description: Golden-path demo microservice for the Internal Developer Platform
+  annotations:
+    # Links this catalog entity to the exact GitHub Actions workflow that
+    # builds/tests/scans/deploys it — Backstage renders live CI run status
+    # directly on the component's page instead of sending a developer to
+    # go find the right workflow file themselves.
+    github.com/project-slug: YOUR_USERNAME/internal-developer-platform
+    backstage.io/kubernetes-id: sample-service
+    # Points TechDocs at this same repo so documentation ships with the code
+    # instead of living in a wiki that silently goes stale.
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - python
+    - flask
+    - golden-path
+  links:
+    - url: https://github.com/YOUR_USERNAME/internal-developer-platform/blob/main/app/README.md
+      title: Service README
+      icon: docs
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: internal-developer-platform
+  # Decision: dependsOn is declared explicitly rather than inferred. Backstage
+  # can't see that this Flask app is scraped by Prometheus unless the catalog
+  # says so — this line is what makes "what depends on what" a real, browsable
+  # graph in the catalog UI instead of tribal knowledge held by one engineer.
+  dependsOn:
+    - resource:default/eks-dev-cluster
+  providesApis: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: internal-developer-platform
+  description: The platform itself — EKS, Argo CD, Prometheus/Grafana, golden-path templates
+spec:
+  owner: platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: eks-dev-cluster
+  description: The EKS cluster provisioned by terraform/envs/dev
+spec:
+  type: kubernetes-cluster
+  owner: platform-team
+  system: internal-developer-platform

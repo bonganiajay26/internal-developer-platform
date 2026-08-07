@@ -18,8 +18,15 @@ and fully understand:
 - **Terraform** provisions the network and the Kubernetes cluster (the platform's foundation).
 - **Argo CD** is the only thing with write access to the cluster (GitOps, not `kubectl apply`).
 - **Prometheus + Grafana** give every team metrics and dashboards for free, on day one.
+- **Backstage** is the front door — a software catalog of every service, a self-service
+  scaffolder for new ones, and live Kubernetes/CI status in one portal.
 - **A sample microservice** shows the "golden path" a product team actually follows.
 - **GitHub Actions** proves the pipeline: build → test → scan → deploy, with security gates.
+
+Without Backstage, this repo is infrastructure a platform team understands. With it, this repo is
+a platform a *developer who has never touched Terraform or Kubernetes* can self-serve from — that
+distinction is the actual difference between "cloud infrastructure" and an "Internal Developer
+Platform," worth stating exactly that way if an interviewer asks what an IDP even is.
 
 ## Repository layout
 
@@ -37,6 +44,11 @@ and fully understand:
 │       └── sample-service.yaml   # Argo CD Application -> app/k8s
 ├── monitoring/
 │   └── values.yaml           # Helm values for kube-prometheus-stack
+├── backstage/
+│   ├── app-config.platform.yaml       # points a Backstage instance at this platform
+│   └── templates/microservice-template/
+│       ├── template.yaml               # Scaffolder form + steps
+│       └── skeleton/                   # what gets stamped out for a new service
 ├── app/
 │   ├── src/                  # Flask microservice + unit tests
 │   ├── Dockerfile            # multi-stage, non-root
@@ -56,6 +68,32 @@ and fully understand:
    and the change is visible in Grafana within 15 seconds.
 5. If anyone runs a manual `kubectl edit` against the cluster, Argo CD's `selfHeal` reverts it —
    Git is the only accepted source of truth.
+6. A developer who wants a **new** service never touches Terraform, Argo CD, or `kubectl` at all —
+   they open Backstage, fill in three fields on the `golden-path-microservice` template, and get a
+   new repo with the same CI pipeline, Dockerfile, and `ServiceMonitor` pattern already wired in.
+   The platform team reviews one PR (adding the new Argo CD Application) instead of building the
+   service's infrastructure by hand.
+
+## Backstage — the developer-facing layer
+
+Everything above this section is infrastructure a **platform team** understands. Backstage is what
+turns it into something a **product engineer** can use without reading any of it.
+
+| Piece | File | What it does |
+|---|---|---|
+| Software catalog | `app/catalog-info.yaml` | Registers `sample-service` (and the cluster + the platform itself as a `System`) so it's browsable, with live GitHub Actions status and links to docs |
+| Self-service scaffolder | `backstage/templates/microservice-template/template.yaml` | A form (service name, description, owner) that stamps out a new repo from `skeleton/` — the same Flask/Dockerfile/k8s/ServiceMonitor pattern as `app/`, parameterized |
+| Kubernetes visibility | `backstage/app-config.platform.yaml` → `kubernetes:` block | Lets a developer see live pod/deployment status for their service without opening `kubectl` or the AWS console |
+| TechDocs | `backstage/app-config.platform.yaml` → `techdocs:` block | Renders this repo's own Markdown (this README, the walkthrough doc) as the component's documentation page — docs live and get reviewed next to the code, not in a separate wiki |
+
+### Backstage-specific decisions & trade-offs
+
+| Decision | Why | What I gave up |
+|---|---|---|
+| `catalog-info.yaml` lives inside `app/`, not a central registry repo | Catalog entry moves/deletes in lockstep with the service — can't silently go stale | A platform-wide catalog view requires scanning many repos instead of reading one file |
+| Scaffolder template opens a PR to add the new Argo CD Application, rather than committing directly | A platform engineer reviews every new service before Argo CD manages it — prevents a typo'd template run from silently taking over cluster resources | Self-service isn't fully "zero-touch" — there's still one human approval step by design |
+| Only 3 required fields in the scaffolder form (name, description, owner) | Every extra required field pushes developers back toward copy-pasting the old folder by hand instead of using the portal | Less upfront customization than a longer form — advanced options become follow-up PRs instead |
+| Kubernetes plugin reads the real cluster Terraform provisioned, not a separate read replica of state | Developers see truth (live pod status), not infrastructure-as-code intent | Backstage now has a runtime dependency on cluster network reachability, not just Git |
 
 This loop — **CI does delivery (build/test/scan/publish), Argo CD does deployment (sync to
 desired state)** — is the single idea that answers most "how does your pipeline work" interview
@@ -117,7 +155,23 @@ kubectl get applications -n argocd
 From this point on, every change to `argocd/apps/`, `app/k8s/`, or `monitoring/values.yaml` is
 picked up automatically — you never run `kubectl apply` again.
 
-## How to tear it downcode
+### 6. Stand up Backstage (separate application, run once)
+
+Backstage is its own Node.js app, not something you `kubectl apply` — you scaffold it once, then
+merge in the config from this repo:
+
+```bash
+npx @backstage/create-app@latest --path backstage-app
+cd backstage-app
+# merge backstage/app-config.platform.yaml from this repo into app-config.yaml,
+# replacing YOUR_USERNAME / YOUR_GITHUB_ORG / K8S_CLUSTER_URL with real values
+yarn dev
+```
+
+Open `http://localhost:3000`, go to **Create** → **golden-path-microservice** to scaffold a new
+service, or **Catalog** to see `sample-service` with its live CI status and Kubernetes pod health.
+
+## How to tear it down
 
 ```bash
 kubectl delete -f argocd/bootstrap/root-app.yaml   # removes Argo-managed resources
@@ -134,6 +188,8 @@ terraform destroy                                    # removes the cluster and n
 - Add an OPA/Gatekeeper policy layer so `argocd/apps/` submissions are validated before sync (resource limits set, no `:latest` tags, required labels)
 - Add a service mesh (Istio/Linkerd) once the number of services in `apps/` grows past a handful, for mTLS and traffic shaping between them
 - Split `envs/dev` into `envs/dev`, `envs/staging`, `envs/prod` with separate state files and promotion via PR, not by hand
+- Make the scaffolder's `argocd-app` step actually open a PR via the GitHub API (it's a placeholder in this repo) instead of requiring a manual follow-up
+- Add a Backstage plugin exposing DORA metrics (deploy frequency, change failure rate) per service, sourced from the CI pipeline's own run history
 
 This "what I'd change at scale" list is deliberate — it's the difference between an answer that
 sounds like a tutorial and one that sounds like judgment.
